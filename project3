@@ -1,0 +1,1189 @@
+# Question 2
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+image_path = '11.png'
+image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+
+# Function to add Gaussian noise
+def add_gaussian_noise(image, mu, sigma):
+
+    noise = np.random.normal(mu, sigma, image.shape).astype(np.float32)
+    noisy_image = np.clip(image + noise, 0, 255).astype(np.uint8)
+    return noisy_image
+
+# Add Gaussian noise to the image with different sigma values
+noisy_image = add_gaussian_noise(image, 0, 5)
+noisy_image1 = add_gaussian_noise(image, 0, 10)
+noisy_image2 = add_gaussian_noise(image, 0, 20)
+
+# Function to generate a Gaussian filter kernel
+def gaussian_filter(size, sigma):
+
+    kernel = np.fromfunction(
+        lambda x, y: (1 / (2 * np.pi * sigma**2)) *
+                     np.exp(- ((x - (size-1)/2)**2 + (y - (size-1)/2)**2) / (2 * sigma**2)),
+        (size, size)
+    )
+    return kernel / np.sum(kernel)
+
+# Apply Gaussian filter to remove noise
+def apply_filter(image, kernel):
+    image_h, image_w = image.shape
+    kernel_h, kernel_w = kernel.shape
+    pad_h, pad_w = kernel_h // 2, kernel_w // 2
+
+    # Pad the image to apply the filter at the borders
+    padded_image = np.pad(image, ((pad_h, pad_h), (pad_w, pad_w)), mode='constant', constant_values=0)
+    filtered_image = np.zeros_like(image, dtype=np.float32)
+
+    # Convolve the image with the kernel
+    for y in range(image_h):
+        for x in range(image_w):
+            region = padded_image[y:y + kernel_h, x:x + kernel_w]
+            filtered_image[y, x] = np.sum(region * kernel)
+
+    return np.clip(filtered_image, 0, 255).astype(np.uint8)
+
+# Generate a Gaussian filter (5x5 kernel with sigma=1.0)
+gaussian_kernel = gaussian_filter(size=5, sigma=1.0)
+
+# Apply Gaussian filter to the noisy image with sigma=20
+filtered_image = apply_filter(noisy_image, gaussian_kernel)
+
+# Display the original, noisy, and filtered images
+plt.figure(figsize=(12, 6))
+
+plt.subplot(1, 5, 1)
+plt.imshow(image, cmap='gray')
+plt.title("Original Image")
+plt.axis('off')
+
+plt.subplot(1, 5, 2)
+plt.imshow(noisy_image, cmap='gray')
+plt.title("Noise Sigma=5")
+plt.axis('off')
+
+plt.subplot(1, 5, 3)
+plt.imshow(noisy_image1, cmap='gray')
+plt.title("Noise Sigma=10")
+plt.axis('off')
+
+plt.subplot(1, 5, 4)
+plt.imshow(noisy_image2, cmap='gray')
+plt.title("Noise Sigma=20")
+plt.axis('off')
+
+plt.subplot(1, 5, 5)
+plt.imshow(filtered_image, cmap='gray')
+plt.title("Filtered Sigma=5")
+plt.axis('off')
+
+plt.show()
+
+
+
+import numpy as np
+import cv2
+import matplotlib.pyplot as plt
+
+class ImageProcessor:
+    def __init__(self, image_path):
+        # Load the image in grayscale mode
+        self.image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+
+    def add_gaussian_noise(self, mean, sigma):
+        # Add Gaussian noise with specified mean and standard deviation to the image
+        height, width = self.image.shape
+        noise = np.random.normal(mean, sigma, (height, width))
+        noisy_image = self.image + noise
+        return np.clip(noisy_image, 0, 255).astype(np.uint8)
+
+    def convolve2d(self, image, kernel):
+        # Convolve the image with a given kernel
+        kernel_height, kernel_width = kernel.shape
+        pad_height = kernel_height // 2
+        pad_width = kernel_width // 2
+        padded_image = np.pad(image, ((pad_height, pad_height), (pad_width, pad_width)), mode='edge')
+        height, width = image.shape
+        output = np.zeros_like(image, dtype=float)
+
+        for i in range(height):
+            for j in range(width):
+                region = padded_image[i:i+kernel_height, j:j+kernel_width]
+                output[i, j] = np.sum(region * kernel)
+        return output
+
+    def calculate_gradient_magnitude(self, image):
+        # Calculate the gradient magnitude of the image using Sobel operators
+        sobel_x = np.array([[1, 0, -1], [2, 0, -2], [1, 0, -1]])
+        sobel_y = np.array([[1, 2, 1], [0, 0, 0], [-1, -2, -1]])
+
+        grad_x = self.convolve2d(image, sobel_x)
+        grad_y = self.convolve2d(image, sobel_y)
+
+        return np.sqrt(grad_x**2 + grad_y**2)
+
+    def apply_gaussian_filter(self, image, kernel_size, sigma):
+        # Apply a Gaussian filter to the image
+        k = kernel_size // 2
+        x, y = np.meshgrid(np.linspace(-k, k, kernel_size), np.linspace(-k, k, kernel_size))
+        gaussian = np.exp(-(x**2 + y**2) / (2*sigma**2))
+        gaussian = gaussian / gaussian.sum()
+        return self.convolve2d(image, gaussian)
+
+def process_and_visualize(image_path):
+    processor = ImageProcessor(image_path)
+
+    # Add noise with mean = 0 and sigma = 10
+    noisy_image = processor.add_gaussian_noise(mean=0, sigma=10)
+
+    # Calculate gradient magnitude of the noisy image
+    noisy_gradient = processor.calculate_gradient_magnitude(noisy_image)
+
+    # Apply a 5x5 Gaussian filter to the noisy image and calculate its gradient magnitude
+    denoised_image = processor.apply_gaussian_filter(noisy_image, kernel_size=5, sigma=1.0)
+    denoised_gradient = processor.calculate_gradient_magnitude(denoised_image)
+
+    fig, axes = plt.subplots(1, 3, figsize=(10, 8))
+
+    axes[0].imshow(noisy_image, cmap='gray')
+    axes[0].set_title('Noisy Image\n(μ = 0, σ = 10)')
+
+    axes[1].imshow(noisy_gradient, cmap='gray')
+    axes[1].set_title('Gradient Magnitude\nof Noisy Image')
+
+    axes[2].imshow(denoised_gradient, cmap='gray')
+    axes[2].set_title('Gradient Magnitude\nof Filtered Image')
+
+    plt.tight_layout()
+    plt.show()
+
+image_path = '11.png'
+process_and_visualize(image_path)
+
+
+
+# Question 3
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+def detect_and_visualize(image_path):
+    # Read image
+    img = cv2.imread(image_path)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # Line detection
+    edges = cv2.Canny(gray, 100, 300)
+    lines = cv2.HoughLines(edges, 1, np.pi/180, threshold=100)
+
+    # Line image
+    line_img = img.copy()
+    if lines is not None:
+        for line in lines:
+            rho, theta = line[0]
+            a = np.cos(theta)
+            b = np.sin(theta)
+            x0 = a * rho
+            y0 = b * rho
+            x1 = int(x0 + 1000*(-b))
+            y1 = int(y0 + 1000*(a))
+            x2 = int(x0 - 1000*(-b))
+            y2 = int(y0 - 1000*(a))
+            cv2.line(line_img, (x1, y1), (x2, y2), (0, 255, 0), 1)
+
+    # Circle detection
+    circle_img = img.copy()
+    circles = cv2.HoughCircles(
+        gray,
+        cv2.HOUGH_GRADIENT,
+        dp=1.0,
+        minDist=7,
+        param1=28,
+        param2=30,
+        minRadius=3,
+        maxRadius=30
+    )
+
+    if circles is not None:
+        circles = np.uint16(np.around(circles))
+        for circle in circles[0, :]:
+            center = (circle[0], circle[1])
+            radius = circle[2]
+            cv2.circle(circle_img, center, radius, (0, 255, 0), 2)
+
+    # Visualization
+    plt.figure(figsize=(10, 8))
+
+    plt.subplot(131)
+    plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    plt.title('Original Image')
+
+    plt.subplot(132)
+    plt.imshow(cv2.cvtColor(line_img, cv2.COLOR_BGR2RGB))
+    plt.title('Line Detection')
+
+    plt.subplot(133)
+    plt.imshow(cv2.cvtColor(circle_img, cv2.COLOR_BGR2RGB))
+    plt.title('Circle Detection')
+
+    plt.tight_layout()
+    plt.show()
+
+# Run detection and visualization
+detect_and_visualize('sample_image.png')
+
+
+
+# Question 1
+import numpy as np
+import matplotlib.pyplot as plt
+import cv2
+
+def sad_template_matching(scene, template):
+    # Convert to grayscale if RGB
+    if len(scene.shape) == 3:
+        scene = np.mean(scene, axis=2).astype(np.uint8)
+    if len(template.shape) == 3:
+        template = np.mean(template, axis=2).astype(np.uint8)
+
+    # Get dimensions of the scene and the template
+    scene_height, scene_width = scene.shape
+    template_height, template_width = template.shape
+
+    # Initialize SAD score matrix to store results
+    sad_map = np.zeros((scene_height - template_height + 1, scene_width - template_width + 1))
+
+    # Calculate SAD for each position in the scene
+    for y in range(scene_height - template_height + 1):
+        for x in range(scene_width - template_width + 1):
+            # Extract the region of interest in the scene
+            roi = scene[y:y + template_height, x:x + template_width]
+            # Compute the Sum of Absolute Differences
+            diff = np.abs(roi.astype(float) - template.astype(float))
+            sad_score = np.sum(diff) / (template_height * template_width)
+            sad_map[y, x] = sad_score  # Store the score in the matrix
+
+    return sad_map
+
+def find_matches(sad_map, threshold_factor=1.2):
+    # Find the minimum SAD score as a reference for the best match
+    min_sad = np.min(sad_map)
+    threshold = min_sad * threshold_factor  # Set a relative threshold
+    matches = []
+    temp_map = sad_map.copy()  # Copy the SAD map to manipulate
+
+    # Iterate to find all matches below the threshold
+    while np.min(temp_map) < threshold:
+        # Find the position with the lowest SAD score
+        min_loc = np.unravel_index(np.argmin(temp_map), temp_map.shape)
+        matches.append(min_loc)  # Add the match location to the list
+
+        y, x = min_loc
+        suppress_size = 5  # Define suppression area size
+        y_start = max(0, y - suppress_size)
+        y_end = min(temp_map.shape[0], y + suppress_size)
+        x_start = max(0, x - suppress_size)
+        x_end = min(temp_map.shape[1], x + suppress_size)
+        temp_map[y_start:y_end, x_start:x_end] = float('inf')
+
+        if len(matches) >= 20:  # Limit the number of matches to prevent excessive matches
+            break
+
+    return matches
+
+def mark_matches(image, matches, template_shape, color=(0, 255, 0)):
+    # Prepare the image for drawing
+    result = image.copy()
+    if len(result.shape) == 2:  # Ensure the image is in color to draw colored rectangles
+        result = np.stack([result] * 3, axis=2)
+
+    th, tw = template_shape  # Get template dimensions for drawing
+
+    for (y, x) in matches:
+        thickness = 2  # Set rectangle border thickness
+        # Draw rectangles around detected matches
+        cv2.rectangle(result, (x, y), (x + tw, y + th), color, thickness)
+
+    return result
+
+def main():
+    # Load images
+    scene1 = cv2.imread('Image_Luigi.png')
+    scene2 = cv2.imread('Image_Luigi_Occluded.png')
+    template1 = cv2.imread('Template_Luigi_Full.png')
+    template2 = cv2.imread('rotated_template.png')
+
+    plt.figure(figsize=(10, 8))
+
+    # Apply template matching for different scenes and templates
+    sad_map1 = sad_template_matching(scene1, template1)
+    matches1 = find_matches(sad_map1)
+    result1 = mark_matches(scene1, matches1, template1.shape[:2])
+
+    plt.subplot(221)
+    plt.imshow(cv2.cvtColor(result1, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 1 - Normal Template (Matches: {len(matches1)})')
+    plt.axis('off')
+
+    sad_map2 = sad_template_matching(scene1, template2)
+    matches2 = find_matches(sad_map2)
+    result2 = mark_matches(scene1, matches2, template2.shape[:2])
+
+    plt.subplot(222)
+    plt.imshow(cv2.cvtColor(result2, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 1 - Rotated Template (Matches: {len(matches2)})')
+    plt.axis('off')
+
+    sad_map3 = sad_template_matching(scene2, template1)
+    matches3 = find_matches(sad_map3)
+    result3 = mark_matches(scene2, matches3, template1.shape[:2])
+
+    plt.subplot(223)
+    plt.imshow(cv2.cvtColor(result3, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 2 - Normal Template (Matches: {len(matches3)})')
+    plt.axis('off')
+
+    sad_map4 = sad_template_matching(scene2, template2)
+    matches4 = find_matches(sad_map4)
+    result4 = mark_matches(scene2, matches4, template2.shape[:2])
+
+    plt.subplot(224)
+    plt.imshow(cv2.cvtColor(result4, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 2 - Rotated Template (Matches: {len(matches4)})')
+    plt.axis('off')
+
+    plt.tight_layout()
+    plt.show()
+
+if __name__ == "__main__":
+    main()
+import numpy as np
+import matplotlib.pyplot as plt
+import cv2
+
+def ssd_template_matching(scene, template):
+
+    if len(scene.shape) == 3:
+        scene = np.mean(scene, axis=2).astype(np.uint8)
+    if len(template.shape) == 3:
+        template = np.mean(template, axis=2).astype(np.uint8)
+
+    # Get dimensions of the scene and the template
+    scene_height, scene_width = scene.shape
+    template_height, template_width = template.shape
+
+    # Initialize the SSD score matrix to store computation results
+    ssd_map = np.zeros((scene_height - template_height + 1, scene_width - template_width + 1))
+
+    # Iterate over all possible positions within the scene
+    for y in range(scene_height - template_height + 1):
+        for x in range(scene_width - template_width + 1):
+            # Extract region of interest matching the template size
+            roi = scene[y:y + template_height, x:x + template_width]
+            # Calculate SSD
+            diff = (roi.astype(float) - template.astype(float)) ** 2
+            ssd_score = np.sum(diff) / (template_height * template_width)
+            ssd_map[y, x] = ssd_score  # Store the calculated score
+
+    return ssd_map
+
+def find_matches(ssd_map, threshold_factor=1.2):
+    # Determine the minimum SSD score as the best possible match
+    min_ssd = np.min(ssd_map)
+    threshold = min_ssd * threshold_factor  # Define a relative threshold for matches
+    matches = []
+    temp_map = ssd_map.copy()  # Copy the SSD map to manipulate and find multiple matches
+
+    while np.min(temp_map) < threshold:
+        # Locate the position with the minimum SSD score
+        min_loc = np.unravel_index(np.argmin(temp_map), temp_map.shape)
+        matches.append(min_loc)  # Append the match
+
+        y, x = min_loc
+        suppress_size = 5  # Define suppression radius
+        y_start = max(0, y - suppress_size)
+        y_end = min(temp_map.shape[0], y + suppress_size)
+        x_start = max(0, x - suppress_size)
+        x_end = min(temp_map.shape[1], x + suppress_size)
+        temp_map[y_start:y_end, x_start:x_end] = float('inf')  # Invalidate this area
+
+        # Stop if enough matches have been found
+        if len(matches) >= 20:
+            break
+
+    return matches
+
+def mark_matches(image, matches, template_shape, color=(0, 255, 0)):
+    # Prepare the image for drawing rectangles
+    result = image.copy()
+    if len(result.shape) == 2:  # Ensure it's in color mode to draw colored rectangles
+        result = np.stack([result] * 3, axis=2)
+
+    th, tw = template_shape  # Dimensions of the template
+
+    for (y, x) in matches:
+        thickness = 2  # Rectangle border thickness
+        # Draw rectangles at the locations of matches
+        cv2.rectangle(result, (x, y), (x + tw, y + th), color, thickness)
+
+    return result
+
+def main():
+    # Load images
+    scene1 = cv2.imread('Image_Luigi.png')
+    scene2 = cv2.imread('Image_Luigi_Occluded.png')
+    template1 = cv2.imread('Template_Luigi_Full.png')
+    template2 = cv2.imread('rotated_template.png')
+
+    plt.figure(figsize=(10, 8))
+
+    # Apply SSD template matching for different scenes and templates
+    ssd_map1 = ssd_template_matching(scene1, template1)
+    matches1 = find_matches(ssd_map1)
+    result1 = mark_matches(scene1, matches1, template1.shape[:2])
+
+    plt.subplot(221)
+    plt.imshow(cv2.cvtColor(result1, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 1 - Normal Template (Matches: {len(matches1)})')
+    plt.axis('off')
+
+    ssd_map2 = ssd_template_matching(scene1, template2)
+    matches2 = find_matches(ssd_map2)
+    result2 = mark_matches(scene1, matches2, template2.shape[:2])
+
+    plt.subplot(222)
+    plt.imshow(cv2.cvtColor(result2, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 1 - Rotated Template (Matches: {len(matches2)})')
+    plt.axis('off')
+
+    ssd_map3 = ssd_template_matching(scene2, template1)
+    matches3 = find_matches(ssd_map3)
+    result3 = mark_matches(scene2, matches3, template1.shape[:2])
+
+    plt.subplot(223)
+    plt.imshow(cv2.cvtColor(result3, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 2 - Normal Template (Matches: {len(matches3)})')
+    plt.axis('off')
+
+    ssd_map4 = ssd_template_matching(scene2, template2)
+    matches4 = find_matches(ssd_map4)
+    result4 = mark_matches(scene2, matches4, template2.shape[:2])
+
+    plt.subplot(224)
+    plt.imshow(cv2.cvtColor(result4, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 2 - Rotated Template (Matches: {len(matches4)})')
+    plt.axis('off')
+
+    plt.tight_layout()
+    plt.show()
+
+if __name__ == "__main__":
+    main()
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+import cv2
+
+def ssd_template_matching(scene, template):
+
+    if len(scene.shape) == 3:
+        scene = np.mean(scene, axis=2).astype(np.uint8)
+    if len(template.shape) == 3:
+        template = np.mean(template, axis=2).astype(np.uint8)
+
+    # Get dimensions of the scene and the template
+    scene_height, scene_width = scene.shape
+    template_height, template_width = template.shape
+
+    # Initialize the SSD score matrix to store computation results
+    ssd_map = np.zeros((scene_height - template_height + 1, scene_width - template_width + 1))
+
+    # Iterate over all possible positions within the scene
+    for y in range(scene_height - template_height + 1):
+        for x in range(scene_width - template_width + 1):
+            # Extract region of interest matching the template size
+            roi = scene[y:y + template_height, x:x + template_width]
+            # Calculate SSD
+            diff = (roi.astype(float) - template.astype(float)) ** 2
+            ssd_score = np.sum(diff) / (template_height * template_width)
+            ssd_map[y, x] = ssd_score  # Store the calculated score
+
+    return ssd_map
+
+def find_matches(ssd_map, threshold_factor=1.2):
+    # Determine the minimum SSD score as the best possible match
+    min_ssd = np.min(ssd_map)
+    threshold = min_ssd * threshold_factor  # Define a relative threshold for matches
+    matches = []
+    temp_map = ssd_map.copy()  # Copy the SSD map to manipulate and find multiple matches
+
+    while np.min(temp_map) < threshold:
+        # Locate the position with the minimum SSD score
+        min_loc = np.unravel_index(np.argmin(temp_map), temp_map.shape)
+        matches.append(min_loc)  # Append the match
+
+        y, x = min_loc
+        suppress_size = 5  # Define suppression radius
+        y_start = max(0, y - suppress_size)
+        y_end = min(temp_map.shape[0], y + suppress_size)
+        x_start = max(0, x - suppress_size)
+        x_end = min(temp_map.shape[1], x + suppress_size)
+        temp_map[y_start:y_end, x_start:x_end] = float('inf')  # Invalidate this area
+
+        # Stop if enough matches have been found
+        if len(matches) >= 20:
+            break
+
+    return matches
+
+def mark_matches(image, matches, template_shape, color=(0, 255, 0)):
+    # Prepare the image for drawing rectangles
+    result = image.copy()
+    if len(result.shape) == 2:  # Ensure it's in color mode to draw colored rectangles
+        result = np.stack([result] * 3, axis=2)
+
+    th, tw = template_shape  # Dimensions of the template
+
+    for (y, x) in matches:
+        thickness = 2  # Rectangle border thickness
+        # Draw rectangles at the locations of matches
+        cv2.rectangle(result, (x, y), (x + tw, y + th), color, thickness)
+
+    return result
+
+def main():
+    # Load images
+    scene1 = cv2.imread('Image_Luigi.png')
+    scene2 = cv2.imread('Image_Luigi_Occluded.png')
+    template1 = cv2.imread('Template_Luigi_Full.png')
+    template2 = cv2.imread('rotated_template.png')
+
+    plt.figure(figsize=(10, 8))
+
+    # Apply SSD template matching for different scenes and templates
+    ssd_map1 = ssd_template_matching(scene1, template1)
+    matches1 = find_matches(ssd_map1)
+    result1 = mark_matches(scene1, matches1, template1.shape[:2])
+
+    plt.subplot(221)
+    plt.imshow(cv2.cvtColor(result1, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 1 - Normal Template (Matches: {len(matches1)})')
+    plt.axis('off')
+
+    ssd_map2 = ssd_template_matching(scene1, template2)
+    matches2 = find_matches(ssd_map2)
+    result2 = mark_matches(scene1, matches2, template2.shape[:2])
+
+    plt.subplot(222)
+    plt.imshow(cv2.cvtColor(result2, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 1 - Rotated Template (Matches: {len(matches2)})')
+    plt.axis('off')
+
+    ssd_map3 = ssd_template_matching(scene2, template1)
+    matches3 = find_matches(ssd_map3)
+    result3 = mark_matches(scene2, matches3, template1.shape[:2])
+
+    plt.subplot(223)
+    plt.imshow(cv2.cvtColor(result3, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 2 - Normal Template (Matches: {len(matches3)})')
+    plt.axis('off')
+
+    ssd_map4 = ssd_template_matching(scene2, template2)
+    matches4 = find_matches(ssd_map4)
+    result4 = mark_matches(scene2, matches4, template2.shape[:2])
+
+    plt.subplot(224)
+    plt.imshow(cv2.cvtColor(result4, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 2 - Rotated Template (Matches: {len(matches4)})')
+    plt.axis('off')
+
+    plt.tight_layout()
+    plt.show()
+
+if __name__ == "__main__":
+    main()
+
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+import cv2
+
+def cross_correlation_matching(scene, template):
+
+    if len(scene.shape) == 3:
+        scene = np.mean(scene, axis=2).astype(np.float32)
+    if len(template.shape) == 3:
+        template = np.mean(template, axis=2).astype(np.float32)
+
+    # Get the dimensions of the scene and the template
+    scene_height, scene_width = scene.shape
+    template_height, template_width = template.shape
+
+    # Initialize correlation score matrix
+    corr_map = np.zeros((scene_height - template_height + 1,
+                         scene_width - template_width + 1))
+
+    # Normalize the template by subtracting the mean and dividing by its standard deviation
+    template -= np.mean(template)
+    template_std = np.std(template)
+
+    # Iterate over each possible position in the scene
+    for y in range(scene_height - template_height + 1):
+        for x in range(scene_width - template_width + 1):
+            # Extract the region of interest from the scene
+            roi = scene[y:y + template_height, x:x + template_width]
+            roi -= np.mean(roi)
+            roi_std = np.std(roi)
+
+            # Compute normalized cross correlation if both standard deviations are non-zero
+            if roi_std > 0 and template_std > 0:
+                corr = np.sum(roi * template) / (roi_std * template_std * roi.size)
+                corr_map[y, x] = corr
+            else:
+                corr_map[y, x] = -1  # Handle cases where division by zero might occur
+
+    return corr_map
+
+def find_matches(corr_map, threshold_factor=0.9):
+    # Identify the maximum correlation value as the best potential match
+    max_corr = np.max(corr_map)
+    threshold = max_corr * threshold_factor  # Define a relative threshold for identifying matches
+    matches = []
+    temp_map = corr_map.copy()
+
+    while np.max(temp_map) > threshold:
+        max_loc = np.unravel_index(np.argmax(temp_map), temp_map.shape)
+        matches.append(max_loc)
+
+        y, x = max_loc
+        suppress_size = 5
+        y_start = max(0, y - suppress_size)
+        y_end = min(temp_map.shape[0], y + suppress_size)
+        x_start = max(0, x - suppress_size)
+        x_end = min(temp_map.shape[1], x + suppress_size)
+        temp_map[y_start:y_end, x_start:x_end] = float('-inf')
+
+        if len(matches) >= 20:
+            break
+
+    return matches
+
+def mark_matches(image, matches, template_shape, color=(0, 255, 0)):
+    # Copy the original image to overlay match markings
+    result = image.copy()
+    if len(result.shape) == 2:  # Convert to color if necessary
+        result = np.stack([result] * 3, axis=2)
+
+    th, tw = template_shape
+
+    # Draw rectangles for each match found
+    for (y, x) in matches:
+        thickness = 2
+        cv2.rectangle(result, (x, y), (x+tw, y+th), color, thickness)
+
+    return result
+
+def main():
+    # Load images
+    scene1 = cv2.imread('Image_Luigi.png')
+    scene2 = cv2.imread('Image_Luigi_Occluded.png')
+    template1 = cv2.imread('Template_Luigi_Full.png')
+    template2 = cv2.imread('rotated_template.png')
+
+    plt.figure(figsize=(10, 8))
+
+    # Process and display matches for each scene and template
+    corr_map1 = cross_correlation_matching(scene1, template1)
+    matches1 = find_matches(corr_map1)
+    result1 = mark_matches(scene1, matches1, template1.shape[:2])
+
+    plt.subplot(221)
+    plt.imshow(cv2.cvtColor(result1, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 1 - Normal Template ({len(matches1)} matches)')
+    plt.axis('off')
+
+    corr_map2 = cross_correlation_matching(scene1, template2)
+    matches2 = find_matches(corr_map2)
+    result2 = mark_matches(scene1, matches2, template2.shape[:2])
+
+    plt.subplot(222)
+    plt.imshow(cv2.cvtColor(result2, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 1 - Rotated Template ({len(matches2)} matches)')
+    plt.axis('off')
+
+    corr_map3 = cross_correlation_matching(scene2, template1)
+    matches3 = find_matches(corr_map3)
+    result3 = mark_matches(scene2, matches3, template1.shape[:2])
+
+    plt.subplot(223)
+    plt.imshow(cv2.cvtColor(result3, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 2 - Normal Template ({len(matches3)} matches)')
+    plt.axis('off')
+
+    corr_map4 = cross_correlation_matching(scene2, template2)
+    matches4 = find_matches(corr_map4)
+    result4 = mark_matches(scene2, matches4, template2.shape[:2])
+
+    plt.subplot(224)
+    plt.imshow(cv2.cvtColor(result4, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 2 - Rotated Template ({len(matches4)} matches)')
+    plt.axis('off')
+
+    plt.tight_layout()
+    plt.show()
+
+if __name__ == "__main__":
+    main()
+
+
+import numpy as np
+import cv2
+import matplotlib.pyplot as plt
+
+def sift_matching(scene, template, ratio_thresh=0.75):
+
+    # Create SIFT detector
+    sift = cv2.SIFT_create()
+
+    # Find keypoints and descriptors
+    keypoints1, descriptors1 = sift.detectAndCompute(template, None)
+    keypoints2, descriptors2 = sift.detectAndCompute(scene, None)
+
+    # Initialize matches array
+    matches = []
+
+    if descriptors1 is not None and descriptors2 is not None:
+        # Create BF Matcher
+        bf = cv2.BFMatcher()
+        # Find 2 nearest matches for each descriptor
+        matches_pairs = bf.knnMatch(descriptors1, descriptors2, k=2)
+
+        # Apply ratio test
+        good_matches = []
+        for m, n in matches_pairs:
+            if m.distance < ratio_thresh * n.distance:
+                good_matches.append(m)
+
+        matches = good_matches
+
+    return keypoints1, keypoints2, matches
+
+def find_homography(keypoints1, keypoints2, matches, template_shape):
+
+    if len(matches) >= 4:
+        src_pts = np.float32([keypoints1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
+        dst_pts = np.float32([keypoints2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+
+        # Find homography using RANSAC
+        H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+
+        if H is not None:
+            h, w = template_shape[:2]
+            pts = np.float32([[0, 0], [0, h-1], [w-1, h-1], [w-1, 0]]).reshape(-1, 1, 2)
+            dst = cv2.perspectiveTransform(pts, H)
+            return dst, mask, H
+
+    return None, None, None
+
+def draw_matches_and_box(scene, template, keypoints1, keypoints2, matches, dst=None):
+
+    result = scene.copy()
+
+    # Draw all matches
+    if dst is not None:
+        # Draw bounding box
+        dst = dst.astype(int)
+        cv2.polylines(result, [dst], True, (0, 255, 0), 3)
+
+    # Draw matches
+    match_img = cv2.drawMatches(template, keypoints1, result, keypoints2, matches, None,
+                               flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+
+    return match_img
+
+def main():
+    # Load images
+    scene1 = cv2.imread('Image_Luigi.png')
+    scene2 = cv2.imread('Image_Luigi_Occluded.png')
+    template1 = cv2.imread('Template_Luigi_Full.png')
+    template2 = cv2.imread('rotated_template.png')
+
+    plt.figure(figsize=(10, 8))
+
+    # Scene 1 with Template 1
+    kp1_1, kp2_1, matches1 = sift_matching(scene1, template1)
+    dst1, mask1, H1 = find_homography(kp1_1, kp2_1, matches1, template1.shape)
+    result1 = draw_matches_and_box(scene1, template1, kp1_1, kp2_1, matches1, dst1)
+
+    plt.subplot(221)
+    plt.imshow(cv2.cvtColor(result1, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 1 - Normal Template ({len(matches1)} matches)')
+    plt.axis('off')
+
+    # Scene 1 with Template 2
+    kp1_2, kp2_2, matches2 = sift_matching(scene1, template2)
+    dst2, mask2, H2 = find_homography(kp1_2, kp2_2, matches2, template2.shape)
+    result2 = draw_matches_and_box(scene1, template2, kp1_2, kp2_2, matches2, dst2)
+
+    plt.subplot(222)
+    plt.imshow(cv2.cvtColor(result2, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 1 - Rotated Template ({len(matches2)} matches)')
+    plt.axis('off')
+
+    # Scene 2 with Template 1
+    kp1_3, kp2_3, matches3 = sift_matching(scene2, template1)
+    dst3, mask3, H3 = find_homography(kp1_3, kp2_3, matches3, template1.shape)
+    result3 = draw_matches_and_box(scene2, template1, kp1_3, kp2_3, matches3, dst3)
+
+    plt.subplot(223)
+    plt.imshow(cv2.cvtColor(result3, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 2 - Normal Template ({len(matches3)} matches)')
+    plt.axis('off')
+
+    # Scene 2 with Template 2
+    kp1_4, kp2_4, matches4 = sift_matching(scene2, template2)
+    dst4, mask4, H4 = find_homography(kp1_4, kp2_4, matches4, template2.shape)
+    result4 = draw_matches_and_box(scene2, template2, kp1_4, kp2_4, matches4, dst4)
+
+    plt.subplot(224)
+    plt.imshow(cv2.cvtColor(result4, cv2.COLOR_BGR2RGB))
+    plt.title(f'Scene 2 - Rotated Template ({len(matches4)} matches)')
+    plt.axis('off')
+
+    plt.tight_layout()
+    plt.show()
+
+if __name__ == "__main__":
+    main()
+
+
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+def sift_detection(template_img, scene_img):
+    # Initialize SIFT detector
+    sift = cv2.SIFT_create()
+
+    # Find keypoints and descriptors with SIFT for both template and scene
+    kp_template, des_template = sift.detectAndCompute(template_img, None)
+    kp_scene, des_scene = sift.detectAndCompute(scene_img, None)
+
+    # FLANN parameters
+    FLANN_INDEX_KDTREE = 1
+    index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
+    search_params = dict(checks=100)  # Increase checks for more precision
+
+    # Create FLANN matcher
+    flann = cv2.FlannBasedMatcher(index_params, search_params)
+
+    # Perform kNN matching with k=2 (find 2 nearest matches)
+    matches = flann.knnMatch(des_template, des_scene, k=2)
+
+    # Apply Lowe's ratio test to filter good matches
+    good_matches = []
+    for m, n in matches:
+        if m.distance < 0.7 * n.distance:  # Ratio value can be adjusted
+            good_matches.append(m)
+
+    # Draw matches between the template and scene
+    img_matches = cv2.drawMatches(template_img, kp_template, scene_img, kp_scene,
+                                  good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+
+    return img_matches, len(good_matches), kp_template, kp_scene, good_matches
+
+def main():
+    # Load template and scene images
+    template1 = cv2.imread('Template_Wally.png')
+    template2 = cv2.imread('Template_Wally2.png')
+    template3 = cv2.imread('Template_Wally3.png')
+
+    scene1 = cv2.imread('Image_Wally.png')
+    scene2 = cv2.imread('Image_Wally2.png')
+    scene3 = cv2.imread('Image_Wally3.png')
+
+    templates = [template1, template2, template3]
+    scenes = [scene1, scene2, scene3]
+
+    # Search each template against each scene
+    for i, template in enumerate(templates, 1):
+        for j, scene in enumerate(scenes, 1):
+            img_matches, num_matches, kp_template, kp_scene, good_matches = sift_detection(template, scene)
+
+            plt.figure(figsize=(10,8))
+            plt.imshow(cv2.cvtColor(img_matches, cv2.COLOR_BGR2RGB))
+            plt.title(f'Template {i} - Scene {j} Matches: {num_matches}')
+            plt.axis('off')
+            plt.show()
+
+            print(f'Template {i} - Scene {j}: Found {num_matches} good matches')
+
+if __name__ == "__main__":
+    main()
+
+
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+def rgb2gray(image):
+
+    if len(image.shape) == 3:
+        return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    return image
+
+def calculate_sad(template_window, scene_window):
+    difference = np.abs(template_window - scene_window)
+    return np.sum(difference)
+
+def sad_matching_scratch(template, scene):
+    template_gray = rgb2gray(template)
+    scene_gray = rgb2gray(scene)
+
+    # Get dimensions of template and scene images
+    template_height, template_width = template_gray.shape
+    scene_height, scene_width = scene_gray.shape
+
+    # Create an array to store SAD values
+    sad_values = np.zeros((scene_height - template_height + 1,
+                          scene_width - template_width + 1))
+
+    # Compute SAD values for each position in the scene
+    for y in range(sad_values.shape[0]):
+        for x in range(sad_values.shape[1]):
+            scene_window = scene_gray[y:y + template_height, x:x + template_width]
+            sad_values[y, x] = calculate_sad(template_gray, scene_window)
+
+    # Find the position with the minimum SAD value
+    min_y, min_x = np.unravel_index(np.argmin(sad_values), sad_values.shape)
+
+    # Highlight the matching area in the original scene image
+    result_img = scene.copy()
+    line_thickness = 5
+    color = (0, 255, 0)  # Green color in BGR format
+    cv2.rectangle(result_img, (min_x, min_y),
+                  (min_x + template_width, min_y + template_height),
+                  color, line_thickness)
+
+    return result_img
+
+def process_images(template_path, scene_path):
+
+    template = cv2.imread(template_path)
+    scene = cv2.imread(scene_path)
+    result = sad_matching_scratch(template, scene)
+
+    # Display results using matplotlib
+    result_rgb = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
+    plt.figure(figsize=(10, 8))
+    plt.imshow(result_rgb)
+    plt.title('Matching Result')
+    plt.axis('off')
+    plt.show()
+
+def main():
+    # File paths for templates and scenes
+    templates = [
+        'Template_Wally.png',
+        'Template_Wally2.png',
+        'Template_Wally3.png'
+    ]
+
+    scenes = [
+        'Image_Wally.png',
+        'Image_Wally2.png',
+        'Image_Wally3.png'
+    ]
+
+    # Loop through each template and scene pair
+    for i, template_path in enumerate(templates):
+        for j, scene_path in enumerate(scenes):
+            print(f"\nProcessing: Template {i+1} - Scene {j+1}")
+            process_images(template_path, scene_path)
+
+if __name__ == "__main__":
+    main()
+
+
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+def rgb2gray(image):
+    if len(image.shape) == 3:
+        return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    return image
+
+def calculate_ssd(template_window, scene_window):
+    difference = template_window - scene_window
+    return np.sum(difference * difference)
+
+def ssd_matching_scratch(template, scene):
+    template_gray = rgb2gray(template)
+    scene_gray = rgb2gray(scene)
+
+    # Get the dimensions of the template and scene images
+    template_height, template_width = template_gray.shape
+    scene_height, scene_width = scene_gray.shape
+
+    # Initialize an array to hold the SSD values for each possible position
+    ssd_values = np.zeros((scene_height - template_height + 1,
+                           scene_width - template_width + 1))
+
+    # Compute SSD for each position where the template can fit within the scene
+    for y in range(ssd_values.shape[0]):
+        for x in range(ssd_values.shape[1]):
+            # Extract the corresponding window from the scene
+            scene_window = scene_gray[y:y + template_height, x:x + template_width]
+            # Calculate SSD and store it in the array
+            ssd_values[y, x] = calculate_ssd(template_gray, scene_window)
+
+    # Find the position with the minimum SSD
+    min_y, min_x = np.unravel_index(np.argmin(ssd_values), ssd_values.shape)
+    # Copy the original scene to mark the template match location
+    result_img = scene.copy()
+    line_thickness = 5
+    color = (0, 255, 0)  # Green color in BGR format for the rectangle outline
+
+    # Draw a rectangle around the best match
+    cv2.rectangle(result_img, (min_x, min_y),
+                  (min_x + template_width, min_y + template_height),
+                  color, line_thickness)
+
+    return result_img
+
+def process_images(template_path, scene_path):
+    template = cv2.imread(template_path)
+    scene = cv2.imread(scene_path)
+    result = ssd_matching_scratch(template, scene)
+
+    # Convert the result to RGB for displaying using matplotlib
+    result_rgb = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
+
+    plt.figure(figsize=(10, 8))
+    plt.imshow(result_rgb)
+    plt.title('Matching Result')
+    plt.axis('off')
+    plt.show()
+
+def main():
+    # Paths for template and scene images
+    templates = [
+        'Template_Wally.png',
+        'Template_Wally2.png',
+        'Template_Wally3.png'
+    ]
+
+    scenes = [
+        'Image_Wally.png',
+        'Image_Wally2.png',
+        'Image_Wally3.png'
+    ]
+
+    # Process each template against each scene
+    for i, template_path in enumerate(templates):
+        for j, scene_path in enumerate(scenes):
+            print(f"\nProcessing: Template {i+1} - Scene {j+1}")
+            process_images(template_path, scene_path)
+
+if __name__ == "__main__":
+    main()
+
+
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+def cc_matching_scratch(template, scene):
+    template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+    scene_gray = cv2.cvtColor(scene, cv2.COLOR_BGR2GRAY)
+
+    # Get the dimensions of the template and scene images
+    template_height, template_width = template_gray.shape
+    scene_height, scene_width = scene_gray.shape
+
+    # Initialize the array to hold the cross-correlation values
+    cc_values = np.zeros((scene_height - template_height + 1,
+                         scene_width - template_width + 1))
+
+    # Loop through each possible position within the scene image
+    for y in range(cc_values.shape[0]):
+        for x in range(cc_values.shape[1]):
+            # Extract the window from the scene that matches the template size
+            scene_window = scene_gray[y:y + template_height, x:x + template_width]
+            # Normalize the template and scene window by subtracting the mean
+            template_norm = template_gray - np.mean(template_gray)
+            scene_norm = scene_window - np.mean(scene_window)
+            # Calculate the standard deviations
+            template_std = np.std(template_gray)
+            scene_std = np.std(scene_window)
+
+            # Prevent division by zero by skipping if standard deviation is zero
+            if template_std == 0 or scene_std == 0:
+                cc_values[y, x] = 0
+                continue
+
+            # Compute normalized cross-correlation
+            correlation = np.sum(template_norm * scene_norm) / (template_std * scene_std)
+            cc_values[y, x] = correlation
+
+    # Find the position of the highest correlation value
+    max_y, max_x = np.unravel_index(np.argmax(cc_values), cc_values.shape)
+
+    # Copy the scene image to draw a rectangle around the best match
+    result_img = scene.copy()
+    line_thickness = 5
+    color = [0, 255, 0]
+
+    # Draw a rectangle on the result image at the location of the highest correlation
+    cv2.rectangle(result_img,
+                  (max_x, max_y),
+                  (max_x + template_width, max_y + template_height),
+                  color,
+                  line_thickness)
+
+    return result_img
+
+def process_images(template_path, scene_path):
+    template = cv2.imread(template_path)
+    scene = cv2.imread(scene_path)
+    result = cc_matching_scratch(template, scene)
+
+    # Display the result using matplotlib
+    plt.figure(figsize=(10, 8))
+    plt.imshow(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
+    plt.title('Matching Result')
+    plt.axis('off')
+    plt.show()
+
+def main():
+    # List of templates and scenes to process
+    templates = [
+        'Template_Wally.png',
+        'Template_Wally2.png',
+        'Template_Wally3.png'
+    ]
+
+    scenes = [
+        'Image_Wally.png',
+        'Image_Wally2.png',
+        'Image_Wally3.png'
+    ]
+
+    # Process each combination of template and scene
+    for i, template_path in enumerate(templates):
+        for j, scene_path in enumerate(scenes):
+            print(f"\nProcessing: Template {i+1} - Scene {j+1}")
+            process_images(template_path, scene_path)
+
+if __name__ == "__main__":
+    main()
