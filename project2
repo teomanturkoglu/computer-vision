@@ -1,0 +1,380 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+#generate the original image
+x = np.zeros((6, 6), dtype='float32')
+x[0, 0:2] = 1
+x[1, 0] = 1
+x[3:, 5] = 2
+x[4, 4] = 2
+
+#add Gaussian Noise
+noise = np.random.normal(0.09, 0.28, size=x.shape) #mean = 0.09, std = 0.26
+x_noisy = x + noise #add noise to the original image
+x_noisy = np.clip(x_noisy, 0, np.max(x)) # ensure noisy image values have a range (0 to max value of original image)
+
+plt.figure(figsize=(10, 5))
+#display original image
+plt.subplot(1, 2, 1)
+plt.imshow(x, cmap='gray', interpolation='none')
+plt.title('Original Image')
+plt.colorbar()
+#display noisy image
+plt.subplot(1, 2, 2)
+plt.imshow(x_noisy, cmap='gray', interpolation='none')
+plt.title('Gaussian Noise Image')
+plt.colorbar()
+
+plt.tight_layout()
+plt.show()
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+#generate the original image
+x = np.zeros((6, 6), dtype='float32')
+x[0, 0:2] = 1
+x[1, 0] = 1
+x[3:, 5] = 2
+x[4, 4] = 2
+
+#add Gaussian Noise
+noise = np.random.normal(0.09, 0.28, size=x.shape) #mean = 0.09, std = 0.26
+x_noisy = x + noise #add noise to the original image
+x_noisy = np.clip(x_noisy, 0, np.max(x)) # ensure noisy image values have a range (0 to max value of original image)
+
+# Normalize the image to 0-255 and convert to uint8
+x_noisy_normalized = (x_noisy / np.max(x_noisy)) * 255 #normalize by scaling the pixel values to 255
+x_noisy_normalized = x_noisy_normalized.astype(np.uint8) #convert to unsigned 8-bit
+
+
+def calculate_histogram(image):
+    hist, _ = np.histogram(image, bins=256, range=(0, 255)) #256 bins to cover all possible pixel intensities
+    return hist
+
+def calculate_pdf(hist):
+    pdf = hist / np.sum(hist) #normalize the histogram for probability of each intensity
+    return pdf
+
+def calculate_cdf(pdf):
+    cdf = np.cumsum(pdf) #cumulative sum of pdf
+    return cdf
+
+def calculate_class_mean(cdf, hist, T):
+    w1 = cdf[T]  #CDF[T]
+    w2 = 1 - w1  #1-w1(T)
+
+    if w1 == 0 or w2 == 0: #if has no pixels return 0 mean
+        return 0, 0
+
+    mu1 = np.sum(np.arange(T + 1) * hist[:T + 1]) / w1  #mean intensity of class 1
+    mu2 = np.sum(np.arange(T + 1, 256) * hist[T + 1:]) / w2  #mean intensity of class 2
+
+    return mu1, mu2
+
+def calculate_bcv(cdf, hist, T):
+    w1 = cdf[T]  #CDF[T]
+    w2 = 1 - w1  #1-w1(T)
+
+    if w1 == 0 or w2 == 0: #if has no pixels return 0 variance
+        return 0
+
+    mu1, mu2 = calculate_class_mean(cdf, hist, T)
+
+    #between-class variance
+    bcv = w1 * w2 * (mu1 - mu2) ** 2
+    return bcv
+
+def otsu_algorithm(image):
+
+    hist = calculate_histogram(image)
+    pdf = calculate_pdf(hist)
+    cdf = calculate_cdf(pdf)
+    bcv = np.zeros(256)
+
+    #calculate between-class variance for all thresholds(0-255)
+    for T in range(256):
+        bcv[T] = calculate_bcv(cdf, hist, T)
+
+    optimal_threshold = np.argmax(bcv) #the threshold that maximizes the between-class variance
+    return optimal_threshold
+
+optimal_threshold = otsu_algorithm(x_noisy_normalized)
+
+#segment the image using the optimal threshold
+segmented_image_T1 = (x_noisy_normalized >= optimal_threshold).astype(np.uint8) * 255
+
+T2=30 #test 1
+segmented_image_T2 = (x_noisy_normalized >= T2).astype(np.uint8) * 255
+
+T3=150 #test 2
+segmented_image_T3 = (x_noisy_normalized >= T3).astype(np.uint8) * 255
+
+
+plt.figure(figsize=(12, 12))
+#display the noisy image
+plt.subplot(2, 2, 1)
+plt.imshow(x_noisy_normalized, cmap='gray', interpolation='none')
+plt.title('Noisy Image')
+plt.colorbar()
+#display the segmented images
+plt.subplot(2, 2, 2)
+plt.imshow(segmented_image_T1, cmap='gray', interpolation='none')
+plt.title(f'Segmented Image (Optimal T = {optimal_threshold})')
+plt.colorbar()
+
+plt.subplot(2, 2, 3)
+plt.imshow(segmented_image_T2, cmap='gray', interpolation='none')
+plt.title(f'Segmented Image (T = {T2})')
+plt.colorbar()
+
+plt.subplot(2, 2, 4)
+plt.imshow(segmented_image_T3, cmap='gray', interpolation='none')
+plt.title(f'Segmented Image (T = {T3})')
+plt.colorbar()
+
+plt.tight_layout()
+plt.show()
+
+
+
+import numpy as np
+import cv2
+import matplotlib.pyplot as plt
+
+image = cv2.imread('Lenna.png', cv2.IMREAD_GRAYSCALE) #load the Lenna image in grayscale
+
+def add_sp_noise(image, amount): #function to add salt and pepper noise
+    row, col = image.shape
+    sp = 0.5  #salt and pepper ratio
+    out = np.copy(image) #create a copy of the original image
+
+    num_salt = np.ceil(amount * image.size * sp) #calculate the number of salt pixels
+    coords = [np.random.randint(0, i - 1, int(num_salt)) for i in image.shape] #generate random coordinates for the salt noise
+    out[coords[0], coords[1]] = 255 #add salt (255)
+    num_pepper = np.ceil(amount * image.size * (1. - sp)) #calculate the number of pepper pixels
+    coords = [np.random.randint(0, i - 1, int(num_pepper)) for i in image.shape] #generate random coordinate for the pepper
+    out[coords[0], coords[1]] = 0 #add pepper (0)
+    return out
+
+#add salt-and-pepper noise to the image
+sp_noise = add_sp_noise(image, 0.05) #noise density
+#apply median filter using cv2.medianBlur
+median_filtered_sp = cv2.medianBlur(sp_noise, 5) #5x5 neighborhood
+#add impulse noise to the image
+impulse_noise = add_sp_noise(image, 0.1) #higher noise density
+#apply median filter
+median_filtered_impulse = cv2.medianBlur(impulse_noise, 5)
+
+#plot the original and noisy images along with the filtered results
+fig, axs = plt.subplots(2, 3, figsize=(15, 10))
+
+axs[0, 0].imshow(image, cmap='gray')
+axs[0, 0].set_title('Original Image')
+axs[0, 0].axis('off')
+
+axs[0, 1].imshow(sp_noise, cmap='gray')
+axs[0, 1].set_title('Salt and Pepper Noise')
+axs[0, 1].axis('off')
+
+axs[0, 2].imshow(impulse_noise, cmap='gray')
+axs[0, 2].set_title('Impulse Noise')
+axs[0, 2].axis('off')
+
+axs[1, 0].imshow(median_filtered_sp, cmap='gray')
+axs[1, 0].set_title('Median Filtered (Salt and Pepper)')
+axs[1, 0].axis('off')
+
+axs[1, 1].imshow(median_filtered_impulse, cmap='gray')
+axs[1, 1].set_title('Median Filtered (Impulse)')
+axs[1, 1].axis('off')
+
+axs[1, 2].axis('off')
+
+plt.tight_layout()
+plt.show()
+
+
+
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+image = cv2.imread('gogol.jpg') #load the image
+image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  #convert from BGR to RGB for displaying with matplotlib
+
+gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY) #convert grayscale because of simplification and we will do edge detection so we need to single channel image, it works for designed to identify sharp changes in intensity
+
+edges = cv2.Canny(gray, 100, 150) #apply edge detection using two threshold
+outlines, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE) #find contours
+book_outline = max(outlines, key=cv2.contourArea) #assume the largest contour is the book cover
+
+arc_length = cv2.arcLength(book_outline, True) #calculate the arclength of the detected contour
+approx = cv2.approxPolyDP(book_outline, 0.01 * arc_length, True) #approximate the shape of contour using the douglas-peucker algorithm
+
+if len(approx) == 4: #check we have exactly four vertices
+    for corner in approx:
+        cv2.circle(image, tuple(corner[0]), 5, (255, 0, 0), -1) #draw red circle and circle has 5 radius, -1 says the circle should be filled
+
+    #order the corners
+    ordered_corners = approx[np.argsort(approx[:, 0, 1]), 0]  #sort by y-coordinate
+    top_left, bottom_left = ordered_corners[:2][np.argsort(ordered_corners[:2, 0])]  # top-left, bottom-left
+    top_right, bottom_right = ordered_corners[2:4][np.argsort(ordered_corners[2:4, 0])]  #top-right, bottom-right
+
+    #display the results
+    plt.figure(figsize=(12, 8))
+    plt.subplot(1,2,1)
+    plt.title('Original with Corners')
+    plt.imshow(image)
+    plt.axis('off')
+
+
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+image = cv2.imread('gogol.jpg') #load the image
+image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  #convert from BGR to RGB for displaying with matplotlib
+
+gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY) #convert grayscale because of simplification and we will do edge detection so we need to single channel image, it works for designed to identify sharp changes in intensity
+
+edges = cv2.Canny(gray, 100, 150) #apply edge detection using two threshold
+outlines, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE) #find contours
+book_outline = max(outlines, key=cv2.contourArea) #assume the largest contour is the book cover
+
+arc_length = cv2.arcLength(book_outline, True) #calculate the arclength of the detected contour
+approx = cv2.approxPolyDP(book_outline, 0.01 * arc_length, True) #approximate the shape of contour using the douglas-peucker algorithm
+
+if len(approx) == 4: #check we have exactly four vertices
+    for corner in approx:
+        cv2.circle(image, tuple(corner[0]), 5, (255, 0, 0), -1) #draw red circle and circle has 5 radius, -1 says the circle should be filled
+
+    #order the corners
+    ordered_corners = approx[np.argsort(approx[:, 0, 1]), 0]  #sort by y-coordinate
+    top_left, bottom_left = ordered_corners[:2][np.argsort(ordered_corners[:2, 0])]  # top-left, bottom-left
+    top_right, bottom_right = ordered_corners[2:4][np.argsort(ordered_corners[2:4, 0])]  #top-right, bottom-right
+
+    #display the results
+    plt.figure(figsize=(12, 8))
+    plt.subplot(1,2,1)
+    plt.title('Original with Corners')
+    plt.imshow(image)
+    plt.axis('off')
+
+
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
+import numpy as np
+from google.colab import files
+
+#data transformations to resize images, convert to tensor, and normalize
+transform = transforms.Compose([
+  transforms.Resize(64),
+  transforms.ToTensor(),
+  transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+])
+
+train_dataset = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform) #load CIFAR-10 dataset for training
+train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True) #dataLoader for batching
+
+#define the Generator network
+class Generator(nn.Module):
+    def __init__(self):
+        super(Generator, self).__init__()
+        self.model = nn.Sequential( #the model consists of fully connected layers with LeakyReLU activations
+            nn.Linear(100, 256),
+            nn.LeakyReLU(0.2),
+            nn.Linear(256, 512),
+            nn.LeakyReLU(0.2),
+            nn.Linear(512, 1024),
+            nn.LeakyReLU(0.2), #LeakyReLU activation
+            nn.Linear(1024, 3 * 64 * 64), #output size corresponding to 64x64 RGB image
+            nn.Tanh()  #output range is [-1, 1]
+        )
+
+    def forward(self, z):
+        return self.model(z).view(z.size(0), 3, 64, 64) #reshape output to image dimensions (64x64x3)
+
+
+#define the Discriminator network
+class Discriminator(nn.Module):
+    def __init__(self):
+        super(Discriminator, self).__init__()
+        self.model = nn.Sequential(
+            nn.Linear(3 * 64 * 64, 1024),
+            nn.LeakyReLU(0.2),
+            nn.Linear(1024, 512),
+            nn.LeakyReLU(0.2),
+            nn.Linear(512, 256),
+            nn.LeakyReLU(0.2),
+            nn.Linear(256, 1), #output a single value
+            nn.Sigmoid()  # output range is [0, 1]
+        )
+
+    def forward(self, img):
+        return self.model(img.view(img.size(0), -1)) #flatten the image for input into the discriminator
+
+adversarial_loss = nn.BCELoss() #binary Cross-Entropy loss for adversarial training
+
+generator = Generator()
+discriminator = Discriminator()
+
+#optimizers for both Generator and Discriminator
+optimizer_G = optim.Adam(generator.parameters(), lr=0.0002, betas=(0.5, 0.999))
+optimizer_D = optim.Adam(discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
+
+n_epochs = 25 #number of training epochs
+for epoch in range(1, n_epochs + 1):  #start from 1 instead of 0
+    for i, (imgs, _) in enumerate(train_loader):
+        batch_size = imgs.size(0)
+        real_imgs = imgs
+        valid = torch.ones(batch_size, 1) #labels for real images (1)
+        fake = torch.zeros(batch_size, 1) #labels for fake images (0)
+
+        optimizer_D.zero_grad() #train discriminator
+        real_loss = adversarial_loss(discriminator(real_imgs), valid) #real images
+
+        z = torch.randn(batch_size, 100) #fake images
+        fake_imgs = generator(z)
+        fake_loss = adversarial_loss(discriminator(fake_imgs.detach()), fake) #compute loss for fake images
+
+        #total discriminator loss
+        d_loss = (real_loss + fake_loss) / 2
+        d_loss.backward()
+        optimizer_D.step()
+
+        optimizer_G.zero_grad() #train generator
+
+        g_loss = adversarial_loss(discriminator(fake_imgs), valid) #generator loss
+        g_loss.backward()
+        optimizer_G.step()
+
+    print(f"Epoch [{epoch}/{n_epochs}], D Loss: {d_loss.item()}, G Loss: {g_loss.item()}")
+
+    z = torch.randn(64, 100)
+    generated_imgs = generator(z) #generate fake images
+    generated_imgs = generated_imgs.detach().numpy().transpose(0, 2, 3, 1)
+    generated_imgs = (generated_imgs + 1) / 2  # Rescale to [0, 1] range
+
+    #show generated images
+    fig, axs = plt.subplots(8, 8, figsize=(8, 8))
+    for i in range(64):
+        axs[i // 8, i % 8].imshow(generated_imgs[i]) #display each image
+        axs[i // 8, i % 8].axis('off')
+    plt.show()
+
+#save the models
+torch.save(generator.state_dict(), 'generator.pth')
+torch.save(discriminator.state_dict(), 'discriminator.pth')
+
+#download the saved models
+files.download('generator.pth')
+files.download('discriminator.pth')
