@@ -1,0 +1,599 @@
+import numpy as np
+import cv2 as cv
+import os
+import matplotlib.pyplot as plt
+
+#Q2
+from PIL import Image
+import glob
+from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline, DiffusionPipeline, DPMSolverMultistepScheduler
+from diffusers.utils import export_to_video
+
+#Q3
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torchvision import models, transforms, datasets
+from torch.utils.data import DataLoader
+
+#Q4
+from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
+
+
+def region_growing(image, seed_point, threshold):
+    height, width = image.shape #get image dimensions for boundary checking
+    segmented = np.zeros_like(image) #initialize output mask
+
+    #initialize seed point
+    stack = [seed_point]
+    #mark seed point in segmentation mask
+    segmented[seed_point[1], seed_point[0]] = 255
+
+    #get seed intensity
+    seed_intensity = image[seed_point[1], seed_point[0]]
+
+    #define 8-connectivity neighbors
+    neighbors = [(-1,-1), (-1,0), (-1,1),
+                (0,-1),          (0,1),
+                (1,-1),  (1,0),  (1,1)]
+
+    while stack:
+        x, y = stack.pop() #get next point from stack
+
+        #check all neighbors
+        for dx, dy in neighbors:
+            new_x, new_y = x + dx, y + dy
+
+            #check boundaries
+            if 0 <= new_x < width and 0 <= new_y < height:
+                #progress only if pixel not already segmented
+                if segmented[new_y, new_x] == 0:
+                    #calculate intensity difference
+                    intensity_diff = abs(int(image[new_y, new_x]) - int(seed_intensity))
+
+                    #add to region if intensity difference is below threshold
+                    if intensity_diff < threshold:
+                        segmented[new_y, new_x] = 255
+                        stack.append((new_x, new_y)) #add to stack for processing
+
+    return segmented
+
+
+img = cv.imread('Lion.jpg', 0)  # Read as grayscale
+
+# Define three different seed points
+seed_points = [(950, 250), (450, 300), (700, 350)]
+threshold = 55
+
+# Display results
+fig, axes = plt.subplots(1, 4, figsize=(20, 5))
+
+# Plot original
+axes[0].imshow(img, cmap='gray')
+axes[0].set_title('Original Image')
+axes[0].axis('off')
+
+results = []
+for i, seed in enumerate(seed_points):
+    # Apply region growing
+    segmented = region_growing(img, seed, threshold)
+
+    # Create black background
+    result = np.zeros_like(img)  # single channel
+
+    # Copy original pixel values where segmented
+    result[segmented == 255] = img[segmented == 255]
+
+    # Convert to BGR to add colored seed point
+    result_bgr = cv.cvtColor(result, cv.COLOR_GRAY2BGR)
+
+    # Mark seed point
+    cv.circle(result_bgr, seed, 5, (0, 0, 255), -1)
+
+    # Save result
+    cv.imwrite(f'lion_segmented_{i+1}.jpg', result_bgr)
+
+    # Convert to RGB for matplotlib display
+    result_rgb = cv.cvtColor(result_bgr, cv.COLOR_BGR2RGB)
+    results.append(result_rgb)
+
+    # Plot result
+    axes[i+1].imshow(result_rgb)
+    axes[i+1].set_title(f'Segmentation with Seed {i+1}')
+    axes[i+1].axis('off')
+
+plt.tight_layout()
+plt.savefig('segmentation_comparison.png')
+plt.close()
+
+plt.figure(figsize=(10, 10))
+plt.imshow(img, cmap='gray')
+plt.title('Original Image')
+plt.axis('off')
+plt.show()
+
+for i, result in enumerate(results):
+    plt.figure(figsize=(10, 10))
+    plt.imshow(result)
+    plt.title(f'Segmentation with Seed {i+1}: {seed_points[i]}')
+    plt.axis('off')
+    plt.show()
+
+
+!pip install diffusers transformers accelerate torch
+
+from huggingface_hub import login
+login(token="")
+
+#set GPU device
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+#Text-to-Image Generation
+print("Generating Text-to-Image...")
+# Load the text-to-image pipeline
+text_to_image_pipe = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5").to(device)
+
+#Put in prompt
+text_to_image_prompt = "a forest with folklore tale characters"
+
+# Generate the image
+text_to_image_result = text_to_image_pipe(text_to_image_prompt).images[0]
+text_to_image_result.save("text_to_image_output.png")
+print("Text-to-Image output saved as text_to_image_output.png")
+
+
+#Text-to-Video Generation
+print("Generating Text-to-Video...")
+# Load the text-to-video pipeline
+text_to_video_pipe = DiffusionPipeline.from_pretrained("damo-vilab/text-to-video-ms-1.7b", torch_dtype=torch.float16, variant="fp16").to(device)
+text_to_video_pipe.scheduler = DPMSolverMultistepScheduler.from_config(text_to_video_pipe.scheduler.config)
+
+# Define prompt
+text_to_video_prompt = "a volcanic eruption, mountain spraying lava"
+
+# Generate the video
+text_to_video_frames = text_to_video_pipe(text_to_video_prompt, num_frames=20).frames
+export_to_video(text_to_video_frames[0], "text_to_video.mp4")
+print("Text-to-Video output saved as text_to_video_output.mp4")
+
+#Image-to-Image Generation
+print("Generating Image-to-Image...")
+# Load the image-to-image pipeline
+image_to_image_pipe = StableDiffusionImg2ImgPipeline.from_pretrained("runwayml/stable-diffusion-v1-5").to(device)
+
+# Load input image (upload your image as input_image.jpg)
+init_image_path = "text_to_image_output.png"
+init_image = Image.open(init_image_path).convert("RGB")
+
+# Define prompt
+image_to_image_prompt = "make this image futuristic"
+
+# Set strength (controls transformation intensity)
+strength = 0.8
+
+# Generate the image
+image_to_image_result = image_to_image_pipe(prompt=image_to_image_prompt, image=init_image, strength=strength).images[0]
+image_to_image_result.save("image_to_image_output.png")
+print("Image-to-Image output saved as image_to_image_output.png")
+
+#Image-to-Video Generation
+print("Generating Image-to-Video...")
+# Load the image-to-video pipeline
+image_to_video_pipe = DiffusionPipeline.from_pretrained("stabilityai/stable-video-diffusion-img2vid-xt", torch_dtype=torch.float16).to(device)
+
+#Resize image
+init_image = text_to_image_result.convert("RGB").resize((512, 288))
+
+# Generate the video
+image_to_video_frames = image_to_video_pipe(image=init_image, num_frames = 10, decode_chunk_size=2).frames
+
+# Save the video
+export_to_video(image_to_video_frames[0], "image_to_video_output.mp4")
+
+print("Image-to-Video output saved as image_to_video_output.mp4")
+print("Image-to-Video output saved as image_to_video_output.mp4")
+
+
+plt.imshow(text_to_image_result)
+plt.axis('off')  # Hide axes
+plt.title('Text to Image, "a forest with folklore tale characters"')
+plt.show()
+
+plt.imshow(image_to_image_result)
+plt.axis('off')  # Hide axes
+plt.title('Image to Image Output, "make this image futuristic"')
+plt.show()
+
+from IPython.display import Video
+
+# Path to the generated video file
+video_path = "image_to_video_output.mp4"
+
+# Display the video
+print('Image to Video, video form of "a forest with folklore tale characters')
+Video(video_path, embed=True)
+
+
+# Path to the generated video file
+video_path = "text_to_video.mp4"
+
+# Display the video
+print('Text to Video, "a volcanic eruption, mountain spraying lava"')
+Video(video_path, embed=True)
+
+
+########################### FRAME EXTRACTION PART ################################
+
+def frames_from_video(video_path):
+
+   cam = cv.VideoCapture(video_path) # read video file using the path
+   frame_path = './frames' # get the current working directory and create a folder named frames
+
+   if (not os.path.exists(frame_path)): #check the path exist
+      os.makedirs(frame_path) #Creating a folder here to saving frames
+
+      currframe = 0
+      extraction_rate = int(cam.get(cv.CAP_PROP_FPS)) # set FPS values  ** save 1 frame per seconds
+
+      while(True):
+         ret, frame = cam.read() #read frame
+
+         if not ret:
+            break
+
+         if extraction_rate == (currframe % 30):  # you have to  save some frames according to setted FPS
+            #save the frame like /frame_i.png whish i is current frame
+            name = os.path.join(frame_path, f'frame_{currframe}.png')
+            cv.imwrite(name, frame)
+
+         currframe += 1
+
+   cam.release()
+   cv.destroyAllWindows() # destroy all windows
+   return frame_path
+
+
+############################### OPTICAL FLOW PART ################################
+
+def optical_flow(frames_saved_path):
+  # Find the all extracted frame path and sort them from first saved to last.
+  frames_path = sorted(glob.glob(frames_saved_path + "/*.png"), key=lambda x: int(x.split('_')[-1].split('.')[0]))
+
+  frames_images = [Image.open(frames) for frames in frames_path] # read and append all image
+
+  # Define ShiTomasi corner detection parameters here as dict form.
+  feature_params = dict(maxCorners = 3, qualityLevel = 0.7, minDistance = 10, blockSize = 7)
+
+  # Define the Lucas Kanade parameters as dict form.
+  lk_params = dict(winSize = (15, 15), maxLevel = 2, criteria = (cv.TERM_CRITERIA_EPS | cv.TERM_CRITERIA_COUNT, 10, 0.03))
+
+  # Create some random colors to marking features
+  color = np.random.randint(0, 255, (100, 3))
+
+  # Take first frame and find corners in it
+  firs_frame = frames_images[0] # it is video's first frames.
+  firs_frame = np.array(firs_frame.resize((224,224))) # Reshape it as 224*244 as array  data type
+
+  flow = list()
+  first_frame_gray = cv.cvtColor(firs_frame, cv.COLOR_RGB2GRAY) #convert frame from RGB to GRAY.
+
+  # write good feature tracker and use first_frame_gray with  **feature_params** as features
+  p0 = cv.goodFeaturesToTrack(first_frame_gray, mask=None, **feature_params)
+
+  # Create a mask image for drawing purposes
+  mask = np.zeros_like(firs_frame) # create a zeros array mask shape of first_frame.
+
+  flow_frames_path = "./flow_frames" #creating folder for new flow frames
+  if (not os.path.exists(flow_frames_path)):
+    os.makedirs(flow_frames_path)
+
+  # Starting loop with second frames of the video
+  for count, frame2 in  enumerate(frames_images[1:]):
+    frame = np.array(frame2.resize((224,224))) # Reshape it as 224*244 as array data type.
+    frame_gray = cv.cvtColor(frame, cv.COLOR_RGB2GRAY) #convert frame from RGB to GRAY
+
+    # Calculate optical flow using Lucak Kanade technique and  ***lk_params***.
+    p1, st, err = cv.calcOpticalFlowPyrLK(first_frame_gray, frame_gray, p0, None, **lk_params)
+
+    # Select good points
+    if p1 is not None: # if features exist
+      good_new = p1[st==1] #write feature
+      good_old = p0[st==1]
+
+      # draw the tracks
+    for i, (new, old) in enumerate(zip(good_new, good_old)):
+      a, b = new.ravel()
+      c, d = old.ravel()
+      mask = cv.line(mask, (int(a), int(b)), (int(c), int(d)), color[i].tolist(), 2)
+      frame = cv.circle(frame, (int(a), int(b)), 5, color[i].tolist(), -1)
+
+    img = cv.add(frame, mask)
+
+    #show the image here and SAVE ımage
+    cv.imshow('frame', img)
+    save_path = os.path.join(flow_frames_path, f'flow_frame_{count}.png')
+    cv.imwrite(save_path, img)
+
+    first_frame_gray = frame_gray.copy()
+    p0 = good_new.reshape(-1, 1, 2)
+    shape = p0.shape
+
+    if count==0:
+      flow.append(np.zeros(shape))
+      flow.append(p0)
+    else:
+      flow.append(p0)
+
+  return flow_frames_path
+
+
+def create_video_from_frame(path): #video creation function
+    if not path.endswith('.mp4'): #ensure .mp4 extension
+        path = path + '.mp4'
+
+    # Get frames using absolute path
+    frames_dir = os.path.abspath('./flow_frames')
+    pattern = os.path.join(frames_dir, 'flow_frame_*.png')
+    frames = sorted(glob.glob(pattern), key=lambda x: int(os.path.basename(x).split('_')[-1].split('.')[0]))
+
+    # Read first frame
+    frame = cv.imread(frames[0])
+    height, width = frame.shape[:2]
+
+    # Setup video writer with absolute path
+    output_path = os.path.abspath(path)
+
+    fourcc = cv.VideoWriter_fourcc('m', 'p', '4', 'v') #fix for macos
+
+    # Initialize writer with explicit parameters
+    out = cv.VideoWriter(
+        filename=output_path,
+        fourcc=fourcc,
+        fps=1.0, #to match one frame per second of initial video frames
+        frameSize=(width, height),
+        isColor=True
+    )
+
+    # Write frames
+    for frame_path in frames:
+        frame = cv.imread(frame_path)
+        if frame is not None:
+            out.write(frame)
+
+    out.release()
+
+
+#using the defined functions
+frame_path = frames_from_video('opticalflow_video.mp4')  # extracted and saved all frame at a certain FPS
+flow_frames_path = optical_flow(frame_path) # optical flow function
+create_video_from_frame(flow_frames_path) # create video from optical flow frames
+
+
+device = "cuda" if torch.cuda.is_available() else "cpu" #select the device
+model_save_path = "./model.pth"
+
+# Prepare data
+data_transforms = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
+
+#prepare data to DataLoader and use data_transform
+train_dataset = datasets.ImageFolder(root='./data/train', transform=data_transforms)
+train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+
+#prepare data to DataLoader and use data_transform
+val_dataset = datasets.ImageFolder(root='./data/validation', transform=data_transforms)
+val_loader = DataLoader(val_dataset, batch_size=32, shuffle=True)
+
+model = models.resnet50(pretrained=True) # Load pre-trained ResNet-50 model
+
+
+"""Freeze everything except the last 3 layers"""
+for param in list(model.parameters())[:-3]: #resnet layers params except the last3:
+   param.requires_grad = False
+
+
+""" You have to change resnet fc layer according to your class size"""
+model.fc = nn.Linear(model.fc.in_features, len(train_dataset.classes))
+
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+model.to(device)
+
+def val(model, val_loader, epoch): # Training loop
+   model.eval()
+   val_loss = 0.0
+   correct = 0
+   total = 0
+
+   #initialize best accuracy tracker for model saving
+   if (not hasattr(val, 'best_acc')):
+      val.best_acc = 0.0
+
+   #with experiment.test(): #does not work
+
+   for inputs, labels in val_loader:
+      with torch.no_grad():
+         #Test model here
+         inputs, labels = inputs.to(device), labels.to(device)
+         outputs = model(inputs)
+         loss = criterion(outputs, labels)
+         val_loss += loss.item() * inputs.size(0) # Accumulate batch loss scaled by batch size
+
+         # Calculate accuracy
+         _, predicted = torch.max(outputs.data, 1)
+         total += inputs.size(0)
+         correct += (predicted == labels).sum().item()
+
+   val_loss = val_loss / total #calculate average loss
+   accuracy = 100 * correct / total #calculate accuracy
+
+   if accuracy > val.best_acc: #Save the best model on validation set
+      torch.save(model.state_dict(), model_save_path)
+      val.best_acc = accuracy
+
+   return val_loss, accuracy
+
+
+def train(model, train_loader, epoch): # Training loop
+   model.train()
+   train_loss = 0.0
+   correct = 0
+   total = 0 #add necessary variables
+
+   for inputs, labels in train_loader:
+      input = inputs.to(device)
+      label = labels.to(device)
+
+      # Forward pass
+      optimizer.zero_grad() # Clear previous gradients
+      output = model(input) # Get model predictions
+      loss = criterion(output, label) # Calculate loss
+
+      # Backward pass
+      loss.backward() # Compute gradients
+      optimizer.step() # Update weights
+
+      train_loss += loss.item() * input.size(0) #multiply loss with batch size
+      _, predicted = output.max(1)
+      total += label.size(0) # Count total samples
+      correct += (predicted == label).sum().item() # Count correct predictions to calculate accuracy
+
+   return train_loss / total, 100 * correct / total
+
+
+epochs = ["Epoch 1", "Epoch 2", "Epoch 3", "Epoch 4", "Epoch 5"]
+
+for epoch in epochs:
+   print(epoch)
+   loss, acc = train(model,train_loader,epoch)
+   print(f"Train Loss: {loss}, Accuracy: {acc}")
+   loss, acc = val(model, val_loader, epoch)
+   print(f"Validation Loss: {loss}, Accuracy: {acc}")
+
+
+#TASK 1
+def extract_basic_features(loader): #basic feature extraction function for pixel concatenation
+    features = []
+    labels = []
+
+    for inputs, target in loader:
+        # Flatten RGB pixels to vector
+        batch_features = inputs.view(inputs.size(0), -1).numpy()
+        features.append(batch_features)
+        labels.extend(target.numpy())
+
+    return np.vstack(features), np.array(labels)
+
+# Prepare data the same way as training
+data_transforms = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
+
+#prepare data to DataLoader and use data_transform
+test_dataset = datasets.ImageFolder(root='./data/test', transform=data_transforms)
+test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+
+
+#Extraction part
+basic_features, basic_labels = extract_basic_features(test_loader)
+
+#apply PCA
+basic_pca = PCA(n_components=2)
+basic_features_pca = basic_pca.fit_transform(basic_features)
+
+#apply KMeans
+n_clusters = 36
+kmeans1 = KMeans(n_clusters=n_clusters)
+basic_cluster_labels = kmeans1.fit_predict(basic_features_pca)
+
+#Visualisation Part
+# Scatter plot
+plt.figure(figsize=(12, 10))
+scatter1 = plt.scatter(basic_features_pca[:, 0], basic_features_pca[:, 1],
+                      c=basic_cluster_labels, cmap='tab20')
+plt.colorbar(scatter1)
+plt.title('Task 1: PCA of Basic Features with 36 Clusters')
+plt.xlabel('First Principal Component')
+plt.ylabel('Second Principal Component')
+plt.show()
+
+# Sample images
+plt.figure(figsize=(20, 30))
+for i in range(n_clusters):
+    cluster_indices = np.where(basic_cluster_labels == i)[0][:3]
+    for j, idx in enumerate(cluster_indices):
+        plt.subplot(12, 9, 3*i + j + 1)
+        img_path = test_dataset.imgs[idx][0]
+        plt.imshow(Image.open(img_path))
+        if j == 0:
+            plt.title(f'Cluster {i}')
+        plt.axis('off')
+
+plt.tight_layout()
+plt.show()
+
+
+#TASK 2
+def extract_features(model, loader): #deep feature extraction function using fine-tuned model
+    features = []
+    labels = []
+    model.eval()
+
+    #Remove final FC layer to get features from last conv layer
+    feature_extractor = torch.nn.Sequential(*list(model.children())[:-1])
+
+    with torch.no_grad():
+        for inputs, target in loader:
+            inputs = inputs.to(device)
+            #Extract deep features
+            features_batch = feature_extractor(inputs)
+            features.append(features_batch.cpu().numpy().squeeze())
+            labels.extend(target.numpy())
+    return np.vstack(features), np.array(labels)
+
+#Feature Extraction Part
+model.load_state_dict(torch.load(model_save_path)) #load best model
+features, labels = extract_features(model, test_loader) #extract features
+
+#apply PCA
+pca = PCA(n_components=2)
+features_pca = pca.fit_transform(features)
+
+#apply KMeans clustering
+n_clusters = 36
+kmeans = KMeans(n_clusters=n_clusters)
+cluster_labels = kmeans.fit_predict(features_pca)
+
+#Visualisation Part
+# Scatter plot
+plt.figure(figsize=(12, 10))
+scatter2 = plt.scatter(features_pca[:, 0], features_pca[:, 1],
+                      c=cluster_labels, cmap='tab20')
+plt.colorbar(scatter2)
+plt.title('Task 2: PCA of Deep Features with 36 Clusters')
+plt.xlabel('First Principal Component')
+plt.ylabel('Second Principal Component')
+plt.show()
+
+# Sample images
+plt.figure(figsize=(20, 30))
+for i in range(n_clusters):
+    cluster_indices = np.where(cluster_labels == i)[0][:3]
+    for j, idx in enumerate(cluster_indices):
+        plt.subplot(12, 9, 3*i + j + 1)
+        img_path = test_dataset.imgs[idx][0]
+        plt.imshow(Image.open(img_path))
+        if j == 0:
+            plt.title(f'Cluster {i}')
+        plt.axis('off')
+
+plt.tight_layout()
+plt.show()
