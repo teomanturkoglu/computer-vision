@@ -1,0 +1,153 @@
+#teoman türkoğlu
+#150200095
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+image = cv2.imread("CT.tif", cv2.IMREAD_GRAYSCALE) #image in grayscale and load image
+
+def gamma_correction(image, gamma=1.0, A=1.0): #control brightnes
+    normalized_img = image / 255.0  #converts 0-255 range to 0-1 range
+    corrected_img = A * np.power(normalized_img, gamma)  #gamma correction for each pixel
+    return np.clip(corrected_img * 255, 0, 255).astype(np.uint8)  #image back to the 0-255 range
+
+gamma_value = 0.5  #gamma < 1 for bright dark area, gamma > 1 for emphasize bright area
+A_value = 2.5  #constant value for contrast
+
+gamma_corrected_image = gamma_correction(image, gamma=gamma_value, A=A_value) #call gamma_correction function
+
+plt.imshow(gamma_corrected_image, cmap="gray") #display image in grayscale
+plt.title(f"Gamma Correction Result (Gamma={gamma_value}, A={A_value})")
+plt.show()
+
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+brain_image = cv2.imread("CT_brain.tif", cv2.IMREAD_GRAYSCALE) #image in grayscale and load image
+
+def intensity_stretching(image):
+    I_min = np.min(image)  # minimum pixel value
+    I_max = np.max(image)  # maximum pixel value
+    stretched = (image - I_min) / (I_max - I_min) * 255  #intensity stretching formula to scale pixel values
+    return np.clip(stretched, 0, 255).astype(np.uint8)
+
+stretched_image = intensity_stretching(brain_image) #image to enhance contrast
+
+plt.imshow(stretched_image, cmap="gray") #display image in grayscale
+plt.title("Intensity Stretching Result")
+plt.show()
+
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+mask_img = cv2.imread('mask.tif', cv2.IMREAD_GRAYSCALE) #mask image in grayscale and load image
+contrast_img = cv2.imread('contrast.tif', cv2.IMREAD_GRAYSCALE) #contrast image in grayscale and load image
+
+subtracted_img = cv2.subtract(mask_img, contrast_img) #subtract contrast image from mask image, result image show the differences betweem mask and contrast
+min_val, max_val = np.min(subtracted_img), np.max(subtracted_img) #find minimum and maximum pixel values
+stretched_img = ((subtracted_img - min_val) / (max_val - min_val) * 255).astype(np.uint8) #image to enhance contrast
+
+#adjusts the image brightness
+gamma = 0.67 #I chose this value to be the closest image to the desired image
+gamma_corrected = np.power(stretched_img / 255.0, gamma) * 255
+gamma_corrected = gamma_corrected.astype(np.uint8)
+
+
+_, binary_mask = cv2.threshold(gamma_corrected, 30, 255, cv2.THRESH_BINARY_INV) #30 = threshold value, make low intensity regions white and high intensity regions black
+
+plt.figure(figsize=(12, 6))
+plt.subplot(1, 3, 1) #shows multiple images in a single figure
+plt.title('Mask')
+plt.imshow(mask_img, cmap='gray') #display image in grayscale
+plt.subplot(1, 3, 2)
+plt.title('Contrast')
+plt.imshow(contrast_img, cmap='gray')
+plt.subplot(1, 3, 3)
+plt.title('Binary Mask (Output)')
+plt.imshow(binary_mask, cmap='gray')
+plt.show()
+
+
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Load zebrafish images in grayscale mode
+bf_5 = cv2.imread('bf_5.tif', cv2.IMREAD_GRAYSCALE)
+bf_7 = cv2.imread('bf_7.tif', cv2.IMREAD_GRAYSCALE)
+
+#load biomolecule images in color mode
+rfp_5 = cv2.imread('RFP_5.tif', cv2.IMREAD_COLOR)
+rfp_7 = cv2.imread('RFP_7.tif', cv2.IMREAD_COLOR)
+
+#initialize SIFT (Scale-Invariant Feature Transform) for feature detection
+sift = cv2.SIFT_create()
+
+#detect keypoints and compute descriptors for both brightfield images
+keyp1, des1 = sift.detectAndCompute(bf_5, None)
+keyp2, des2 = sift.detectAndCompute(bf_7, None)
+
+#brute force matcher to find matches between descriptors
+bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
+matches = bf.match(des1, des2)
+
+#sort matches by their distance
+matches = sorted(matches, key=lambda x: x.distance)
+
+#visualize the top 50 matches between the two zebrafish images
+img_matches = cv2.drawMatches(bf_5, keyp1, bf_7, keyp2, matches[:50], None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+
+#select the top 50 matches for calculating homography
+selected_matches = matches[:50]
+
+#extract the matched keypoints' coordinates from the first image
+point1 = np.float32([keyp1[m.queryIdx].pt for m in selected_matches]).reshape(-1, 1, 2)
+
+#extract the matched keypoints' coordinates from the second image
+point2 = np.float32([keyp2[m.trainIdx].pt for m in selected_matches]).reshape(-1, 1, 2)
+
+#compute homography matrix using RANSAC
+homography_matrix, mask = cv2.findHomography(point2, point1, cv2.RANSAC, 5.0)
+
+#align the second zebrafish image to the first using the computed homography
+bf_7_aligned = cv2.warpPerspective(bf_7, homography_matrix, (bf_5.shape[1], bf_5.shape[0]))
+
+def focus_stack(img1, img2):
+    return np.maximum(img1, img2)  #maximum intensity pixel-wise
+
+#apply focus stacking to combine the sharpest regions of both zebrafish images
+stacked_zebrafish = focus_stack(bf_5, bf_7_aligned)
+
+#align the second biomolecule image to the first using the same homography
+rfp_7_aligned = cv2.warpPerspective(rfp_7, homography_matrix, (rfp_5.shape[1], rfp_5.shape[0]))
+
+def extract_red(rfp_image_1, rfp_image_2_aligned): #extract red channel from both images
+    red_1 = rfp_image_1[:, :, 2]
+    red_2 = rfp_image_2_aligned[:, :, 2]
+
+    #combine the red channels by taking the maximum pixel-wise
+    combined_red = np.maximum(red_1, red_2)
+
+    #normalize the combined red channel to fit in the range [0, 255]
+    normalized_red = cv2.normalize(combined_red, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+    #create an overlay image with only the red channel
+    red_overlay = cv2.merge((np.zeros_like(normalized_red), np.zeros_like(normalized_red), normalized_red))  #red channel combined and normalized, empty blue and green channel
+    return red_overlay
+
+#extract and combine red channels from biomolecule images
+rfp_red_overlay = extract_red(rfp_5, rfp_7_aligned)
+final_correct_overlay = cv2.addWeighted(cv2.merge((stacked_zebrafish,) * 3), 1, rfp_red_overlay, 1, 0)
+
+
+plt.figure(figsize=(10, 10))
+plt.imshow(cv2.cvtColor(final_correct_overlay, cv2.COLOR_BGR2RGB))
+plt.axis('off')
+plt.title('Final Stacked Image')
+plt.show()
